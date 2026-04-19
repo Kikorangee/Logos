@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Evnex EV Charging Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #0f2b3d; padding: 20px; }
+        .container { max-width: 1400px; margin: 0 auto; background: white; border-radius: 24px; overflow: hidden; }
+        .header { background: #1F4E79; color: white; padding: 20px 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
+        .upload-btn { background: rgba(255,255,255,0.2); padding: 8px 20px; border-radius: 30px; cursor: pointer; }
+        .upload-btn:hover { background: rgba(255,255,255,0.3); }
+        .status { margin: 15px 30px; padding: 10px 15px; background: #f0f0f0; border-radius: 10px; font-size: 14px; }
+        .filters { display: flex; flex-wrap: wrap; gap: 15px; padding: 20px 30px; background: #f8f9fa; border-bottom: 1px solid #ddd; }
+        .filter-group { display: flex; flex-direction: column; gap: 5px; }
+        .filter-group label { font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        select, input { padding: 8px 12px; border-radius: 8px; border: 1px solid #ccc; min-width: 160px; }
+        button { background: #1F4E79; color: white; border: none; padding: 8px 20px; border-radius: 20px; cursor: pointer; margin-top: 22px; }
+        .date-shortcuts { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 30px; background: #eef2f7; border-bottom: 1px solid #ddd; align-items: center; }
+        .date-shortcuts span { font-size: 11px; font-weight: bold; color: #666; text-transform: uppercase; margin-right: 4px; }
+        .shortcut-btn { background: white; color: #1F4E79; border: 1.5px solid #1F4E79; padding: 5px 14px; border-radius: 20px; cursor: pointer; font-size: 12px; font-weight: 600; margin-top: 0; transition: all 0.15s; }
+        .shortcut-btn:hover, .shortcut-btn.active { background: #1F4E79; color: white; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; padding: 25px 30px; background: #f5f7fa; }
+        .stat-card { background: white; padding: 15px; border-radius: 16px; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        .stat-value { font-size: 28px; font-weight: bold; color: #1F4E79; margin-top: 8px; }
+        .stat-label { font-size: 12px; color: #666; text-transform: uppercase; }
+        .section { padding: 20px 30px; border-top: 1px solid #eee; }
+        .section h2 { margin-bottom: 15px; font-size: 18px; }
+        .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; margin-bottom: 20px; }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 20px; }
+        .card { background: white; border-radius: 16px; padding: 15px; border: 1px solid #e0e0e0; }
+        .card h3 { font-size: 14px; margin-bottom: 12px; color: #333; border-left: 3px solid #1F4E79; padding-left: 10px; }
+        .rank-list { list-style: none; padding: 0; }
+        .rank-list li { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        canvas { max-height: 220px; width: 100%; }
+        .bu-charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .bu-chart-card { background: white; border-radius: 16px; padding: 15px; border: 1px solid #e0e0e0; }
+        .bu-chart-card h3 { font-size: 14px; margin-bottom: 12px; color: #333; border-left: 3px solid #10b981; padding-left: 10px; }
+        .bu-chart-card canvas { max-height: 180px; }
+        .stat-card.carbon { border-top: 3px solid #10b981; }
+        .formula-bar { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 10px; padding: 8px 16px; font-size: 12px; color: #065f46; margin: 0 30px 0 30px; display:none; }
+        .formula-bar code { font-family: monospace; background: #dcfce7; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+        @media (max-width: 1000px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } .grid-3 { grid-template-columns: 1fr 1fr; } }
+        @media (max-width: 700px) { .grid-4, .grid-2, .grid-3, .bu-charts-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>⚡ Evnex EV Charging Dashboard</h1>
+        <div class="upload-btn" id="uploadBtn">📂 Upload CSV</div>
+        <input type="file" id="fileInput" accept=".csv" style="display:none">
+    </div>
+
+    <div id="status" class="status">📁 Upload your Evnex CSV file</div>
+
+    <div id="filters" class="filters" style="display:none">
+        <div class="filter-group"><label>🏢 Business Unit</label><select id="buFilter"></select></div>
+        <div class="filter-group"><label>🚗 Vehicle</label><select id="vehicleFilter"></select></div>
+        <div class="filter-group"><label>📍 Location</label><select id="locationFilter"></select></div>
+        <div class="filter-group"><label>📅 From</label><input type="date" id="dateFrom"></div>
+        <div class="filter-group"><label>📅 To</label><input type="date" id="dateTo"></div>
+        <button id="resetBtn">⟳ Reset</button>
+    </div>
+
+    <div id="dateShortcuts" class="date-shortcuts" style="display:none">
+        <span>📅 Quick Select:</span>
+        <button class="shortcut-btn" id="btnCurrentMonth">Current Month</button>
+        <button class="shortcut-btn" id="btnLastMonth">Last Month</button>
+        <button class="shortcut-btn" id="btnLastQuarter">Last Quarter</button>
+    </div>
+
+    <div id="formulaBar" class="formula-bar">
+        🌿 <strong>Carbon (actual):</strong> &nbsp;<code>Carbon use (gCO₂e) = kWh × 39.2 g/kWh</code>&nbsp; — NZ grid average &nbsp;|&nbsp;
+        🚛 <strong>Carbon saving vs diesel:</strong> &nbsp;<code>Saving (gCO₂e) = (kWh × 1,050) − Carbon use</code>&nbsp; — diesel baseline: 210 gCO₂/km ÷ 0.20 kWh/km &nbsp;|&nbsp;
+        💰 <strong>Cost:</strong> &nbsp;<code>kWh × $0.30</code>
+    </div>
+
+    <div id="stats" class="stats"></div>
+
+    <div id="charts" class="section" style="display:none">
+        <h2>📊 Charging Analytics</h2>
+        <div class="grid-2">
+            <div class="card"><h3>📍 Energy by Location</h3><canvas id="locChart"></canvas></div>
+            <div class="card"><h3>⏰ Energy by Hour of Day</h3><canvas id="hourChart"></canvas></div>
+        </div>
+        <div class="grid-2">
+            <div class="card"><h3>🚗 Energy by Vehicle (Total kWh)</h3><canvas id="vehicleChart"></canvas></div>
+            <div class="card" id="buSummaryCard" style="display:none"><h3>🏢 Vehicle Totals — <span id="buChartTitle"></span></h3><canvas id="buVehicleChart"></canvas></div>
+        </div>
+    </div>
+
+    <div id="carbonLeaderboard" class="section" style="display:none">
+        <h2>🌿 Carbon Savings Leaderboard — EV vs Diesel</h2>
+        <p style="font-size:13px;color:#666;margin-bottom:16px;">Estimated CO₂e avoided per Business Unit compared to an equivalent diesel fleet &nbsp;(210 gCO₂/km, 0.20 kWh/km baseline)</p>
+        <div class="card" style="padding:0;overflow:hidden;">
+            <canvas id="carbonSavingsChart" style="max-height:320px;padding:15px;box-sizing:border-box;"></canvas>
+        </div>
+    </div>
+
+    <div id="buChartsSection" class="section" style="display:none">
+        <h2>🏢 Business Unit Profiles</h2>
+        <div class="bu-charts-grid" id="buChartsGrid"></div>
+    </div>
+
+    <div class="footer">💰 Data from your Evnex CSV file</div>
+</div>
+
+<script>
+    let allData = [];
+    let filteredData = [];
+    let charts = {};
+
+    function parseDate(str) {
+        if (!str) return new Date(NaN);
+        let parts = str.trim().split(' ');
+        let datePart = parts[0];
+        let timePart = parts[1] || '00:00';
+        let dateSplit = datePart.split('/');
+        if (dateSplit.length === 3) {
+            let day = dateSplit[0].padStart(2,'0');
+            let month = dateSplit[1].padStart(2,'0');
+            let year = dateSplit[2];
+            return new Date(`${year}-${month}-${day}T${timePart}`);
+        }
+        return new Date(str);
+    }
+
+    function formatDuration(sec) {
+        if (!sec || sec <= 0) return "0m";
+        let h = Math.floor(sec / 3600);
+        let m = Math.floor((sec % 3600) / 60);
+        return h > 0 ? `${h}h ${m}m` : `${m}m`;
+    }
+
+    function parseCost(value) {
+        if (!value) return 0;
+        let str = String(value).trim().replace('$', '');
+        let num = parseFloat(str);
+        return isNaN(num) ? 0 : num;
+    }
+
+    const BU_COLORS = ['#1F4E79','#10b981','#3b82f6','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16','#ec4899'];
+    const KWH_RATE = 0.30;           // $0.30 per kWh
+    const DIESEL_CO2_PER_KM = 210;   // gCO₂e/km for diesel vehicle
+    const EV_KWH_PER_KM = 0.20;      // kWh/km for EV
+    const DIESEL_CO2_PER_KWH = DIESEL_CO2_PER_KM / EV_KWH_PER_KM; // = 1,050 gCO₂e/kWh
+
+    function fmtNum(n, decimals = 0) {
+        return parseFloat(n).toLocaleString('en-NZ', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    }
+    function fmtKwh(n) { return fmtNum(n, 1); }
+    function fmtCost(n) { return '$' + fmtNum(n, 2); }
+
+    function toDateInput(d) {
+        return d.toISOString().split('T')[0];
+    }
+
+    function setDateRange(from, to) {
+        document.getElementById("dateFrom").value = toDateInput(from);
+        document.getElementById("dateTo").value = toDateInput(to);
+        // Clear active state then set on clicked btn (handled in caller)
+        applyFilters();
+    }
+
+    function setActiveShortcut(id) {
+        ['btnCurrentMonth','btnLastMonth','btnLastQuarter'].forEach(b => document.getElementById(b).classList.remove('active'));
+        if (id) document.getElementById(id).classList.add('active');
+    }
+
+    document.getElementById("btnCurrentMonth").onclick = () => {
+        let now = new Date();
+        let from = new Date(now.getFullYear(), now.getMonth(), 1);
+        let to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        setActiveShortcut('btnCurrentMonth');
+        setDateRange(from, to);
+    };
+
+    document.getElementById("btnLastMonth").onclick = () => {
+        let now = new Date();
+        let from = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        let to = new Date(now.getFullYear(), now.getMonth(), 0);
+        setActiveShortcut('btnLastMonth');
+        setDateRange(from, to);
+    };
+
+    document.getElementById("btnLastQuarter").onclick = () => {
+        let now = new Date();
+        let q = Math.floor(now.getMonth() / 3); // current quarter index
+        let prevQ = q === 0 ? 3 : q - 1;
+        let prevQYear = q === 0 ? now.getFullYear() - 1 : now.getFullYear();
+        let from = new Date(prevQYear, prevQ * 3, 1);
+        let to = new Date(prevQYear, prevQ * 3 + 3, 0);
+        setActiveShortcut('btnLastQuarter');
+        setDateRange(from, to);
+    };
+
+    document.getElementById("uploadBtn").onclick = () => document.getElementById("fileInput").click();
+    document.getElementById("fileInput").onchange = (e) => {
+        let file = e.target.files[0];
+        if (!file) return;
+        document.getElementById("status").innerHTML = "📖 Reading file...";
+        let reader = new FileReader();
+        reader.onload = (ev) => {
+            let results = Papa.parse(ev.target.result, { header: true, skipEmptyLines: true });
+            let rows = results.data;
+            let sessions = [];
+            let totalCostSum = 0;
+
+            for (let row of rows) {
+                let cost = parseCost(row["Total cost"] || row[" Total cost "] || row[" Total cost"]);
+                let energy = parseFloat(row["Total usage"]) || 0;
+                let carbon = parseFloat(row["Carbon use"]) || 0;
+                let businessUnit = (row["Business unit. "] || row["Business unit."] || "Unknown").trim();
+                let vehicle = (row["Vehicle details. "] || row["Vehicle details."] || row["Token name"] || "Unknown").trim();
+                let location = row["Location name"] || "Unknown";
+                let startTime = row["Start time"];
+                let duration = (parseFloat(row["Session duration"]) || 0) / 1000;
+
+                if (energy === 0 && cost === 0) continue;
+
+                totalCostSum += cost;
+                sessions.push({
+                    startTime, energy, cost, carbon, location, businessUnit, vehicle, duration,
+                    date: parseDate(startTime)
+                });
+            }
+
+            allData = sessions;
+            document.getElementById("status").innerHTML = `✅ Loaded ${allData.length.toLocaleString()} sessions | Total Cost: ${fmtCost(totalCostSum)}`;
+            document.getElementById("status").style.background = "#d1fae5";
+
+            document.getElementById("dateFrom").value = "2026-01-01";
+            document.getElementById("dateTo").value = "2026-12-31";
+
+            updateFilters();
+            applyFilters();
+
+            document.getElementById("filters").style.display = "flex";
+            document.getElementById("dateShortcuts").style.display = "flex";
+            document.getElementById("formulaBar").style.display = "block";
+            document.getElementById("charts").style.display = "block";
+            document.getElementById("carbonLeaderboard").style.display = "block";
+            document.getElementById("buChartsSection").style.display = "block";
+        };
+        reader.readAsText(file);
+    };
+
+    function updateFilters() {
+        let bus = [...new Set(allData.map(d => d.businessUnit))].filter(b => b !== "Unknown").sort();
+        let vehicles = [...new Set(allData.map(d => d.vehicle))].filter(v => v !== "Unknown").sort();
+        let locs = [...new Set(allData.map(d => d.location))].sort();
+
+        document.getElementById("buFilter").innerHTML = '<option value="all">All Business Units</option>' + bus.map(b => `<option value="${b}">${b}</option>`).join('');
+        document.getElementById("vehicleFilter").innerHTML = '<option value="all">All Vehicles</option>' + vehicles.map(v => `<option value="${v}">${v.length > 30 ? v.substring(0,27)+'...' : v}</option>`).join('');
+        document.getElementById("locationFilter").innerHTML = '<option value="all">All Locations</option>' + locs.map(l => `<option value="${l}">${l.length > 35 ? l.substring(0,32)+'...' : l}</option>`).join('');
+    }
+
+    function applyFilters() {
+        let bu = document.getElementById("buFilter").value;
+        let veh = document.getElementById("vehicleFilter").value;
+        let loc = document.getElementById("locationFilter").value;
+        let from = document.getElementById("dateFrom").value;
+        let to = document.getElementById("dateTo").value;
+
+        filteredData = allData.filter(d => {
+            if (bu !== "all" && d.businessUnit !== bu) return false;
+            if (veh !== "all" && d.vehicle !== veh) return false;
+            if (loc !== "all" && d.location !== loc) return false;
+            if (from) { let fd = new Date(from); fd.setHours(0,0,0,0); if (d.date < fd) return false; }
+            if (to)   { let td = new Date(to);   td.setHours(23,59,59,999); if (d.date > td) return false; }
+            return true;
+        });
+
+        renderStats();
+        renderCharts();
+        renderCarbonLeaderboard();
+        renderBUCharts();
+    }
+
+    function renderStats() {
+        let total = filteredData.length;
+        let totalEnergy = filteredData.reduce((s, d) => s + d.energy, 0);
+        let totalCost = filteredData.reduce((s, d) => s + d.cost, 0);
+        let totalCarbon = filteredData.reduce((s, d) => s + d.carbon, 0); // gCO₂e from CSV
+        let avgEnergy = total ? (totalEnergy / total).toFixed(1) : 0;
+
+        let durations = filteredData.filter(d => d.duration > 0 && d.duration < 86400);
+        let avgDur = durations.length ? durations.reduce((s, d) => s + d.duration, 0) / durations.length : 0;
+        let maxDur = durations.length ? Math.max(...durations.map(d => d.duration)) : 0;
+        let minDur = durations.length ? Math.min(...durations.map(d => d.duration)) : 0;
+
+        // Display carbon in kg if >= 1000g, else grams
+        let carbonDisplay = totalCarbon >= 1000
+            ? fmtNum(totalCarbon / 1000, 2) + ' kg'
+            : fmtNum(totalCarbon, 0) + ' g';
+
+        document.getElementById("stats").innerHTML = `
+            <div class="stat-card"><div class="stat-label">Sessions</div><div class="stat-value">${total.toLocaleString()}</div></div>
+            <div class="stat-card"><div class="stat-label">Total Energy</div><div class="stat-value">${fmtNum(totalEnergy, 0)} kWh</div></div>
+            <div class="stat-card"><div class="stat-label">Total Cost</div><div class="stat-value">${fmtCost(totalCost)}</div></div>
+            <div class="stat-card carbon"><div class="stat-label">🌿 Total Carbon</div><div class="stat-value" style="color:#10b981">${carbonDisplay} CO₂e</div></div>
+            <div class="stat-card"><div class="stat-label">Avg Energy</div><div class="stat-value">${fmtKwh(avgEnergy)} kWh</div></div>
+            <div class="stat-card"><div class="stat-label">Avg Charge Time</div><div class="stat-value">${formatDuration(avgDur)}</div></div>
+            <div class="stat-card"><div class="stat-label">Longest Charge</div><div class="stat-value">${formatDuration(maxDur)}</div></div>
+            <div class="stat-card"><div class="stat-label">Shortest Charge</div><div class="stat-value">${formatDuration(minDur)}</div></div>
+        `;
+    }
+
+    function makeBarChart(canvasId, labels, data, color, indexAxis) {
+        if (charts[canvasId]) charts[canvasId].destroy();
+        charts[canvasId] = new Chart(document.getElementById(canvasId), {
+            type: 'bar',
+            data: { labels, datasets: [{ label: 'kWh', data, backgroundColor: color }] },
+            options: {
+                indexAxis: indexAxis || 'x',
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed[indexAxis === 'y' ? 'x' : 'y'], 1) + ' kWh' } }
+                },
+                scales: {
+                    x: { ticks: { font: { size: 10 }, callback: v => typeof v === 'number' ? fmtNum(v, 0) : v } },
+                    y: { ticks: { font: { size: 10 }, callback: v => typeof v === 'number' ? fmtNum(v, 0) : v } }
+                }
+            }
+        });
+    }
+
+    function renderCharts() {
+        // Energy by Location
+        let locMap = new Map();
+        filteredData.forEach(d => locMap.set(d.location, (locMap.get(d.location) || 0) + d.energy));
+        let topLocs = Array.from(locMap.entries()).sort((a,b) => b[1] - a[1]).slice(0,8);
+        makeBarChart('locChart', topLocs.map(l => l[0].length > 22 ? l[0].substring(0,19)+'…' : l[0]), topLocs.map(l => parseFloat(l[1].toFixed(1))), '#10b981', 'y');
+
+        // Energy by Hour (filtered)
+        let hourEnergy = new Array(24).fill(0);
+        filteredData.forEach(d => { let h = d.date.getHours(); if (!isNaN(h)) hourEnergy[h] += d.energy; });
+        makeBarChart('hourChart', [...Array(24).keys()].map(h => `${h}:00`), hourEnergy.map(v => parseFloat(v.toFixed(1))), '#3b82f6', 'x');
+
+        // Energy by Vehicle (all vehicles in filtered set)
+        let vehMap = new Map();
+        filteredData.forEach(d => vehMap.set(d.vehicle, (vehMap.get(d.vehicle) || 0) + d.energy));
+        let vehEntries = Array.from(vehMap.entries()).sort((a,b) => b[1] - a[1]).slice(0,15);
+        makeBarChart('vehicleChart', vehEntries.map(v => v[0].length > 22 ? v[0].substring(0,19)+'…' : v[0]), vehEntries.map(v => parseFloat(v[1].toFixed(1))), '#8b5cf6', 'y');
+
+        // BU-specific vehicle chart (only shown when a BU is selected)
+        let selectedBU = document.getElementById("buFilter").value;
+        let buSummaryCard = document.getElementById("buSummaryCard");
+        if (selectedBU !== "all") {
+            document.getElementById("buChartTitle").textContent = selectedBU;
+            let buVehMap = new Map();
+            filteredData.forEach(d => {
+                if (d.businessUnit === selectedBU) buVehMap.set(d.vehicle, (buVehMap.get(d.vehicle) || 0) + d.energy);
+            });
+            let buVehEntries = Array.from(buVehMap.entries()).sort((a,b) => b[1] - a[1]);
+            makeBarChart('buVehicleChart', buVehEntries.map(v => v[0].length > 22 ? v[0].substring(0,19)+'…' : v[0]), buVehEntries.map(v => parseFloat(v[1].toFixed(1))), '#f59e0b', 'y');
+            buSummaryCard.style.display = "block";
+        } else {
+            buSummaryCard.style.display = "none";
+            if (charts['buVehicleChart']) { charts['buVehicleChart'].destroy(); delete charts['buVehicleChart']; }
+        }
+    }
+
+    function renderCarbonLeaderboard() {
+        // Group by BU, calculate saving = (kWh * DIESEL_CO2_PER_KWH) - carbon
+        let buMap = new Map();
+        filteredData.forEach(d => {
+            if (d.businessUnit === 'Unknown') return;
+            let existing = buMap.get(d.businessUnit) || { energy: 0, carbon: 0 };
+            existing.energy += d.energy;
+            existing.carbon += d.carbon;
+            buMap.set(d.businessUnit, existing);
+        });
+
+        // Calculate savings in kg CO₂e and sort descending
+        let entries = Array.from(buMap.entries()).map(([bu, v]) => {
+            let savingG = (v.energy * DIESEL_CO2_PER_KWH) - v.carbon;
+            return { bu, savingKg: savingG / 1000, energy: v.energy, carbon: v.carbon };
+        }).sort((a, b) => b.savingKg - a.savingKg);
+
+        if (!entries.length) return;
+
+        // Colour bars green → yellow based on rank
+        let barColors = entries.map((_, i) => {
+            let ratio = entries.length > 1 ? i / (entries.length - 1) : 0;
+            // green #10b981 → teal #06b6d4
+            let r = Math.round(16 + (6 - 16) * ratio);
+            let g = Math.round(185 + (182 - 185) * ratio);
+            let b = Math.round(129 + (212 - 129) * ratio);
+            return `rgb(${r},${g},${b})`;
+        });
+
+        if (charts.carbonSavings) charts.carbonSavings.destroy();
+        charts.carbonSavings = new Chart(document.getElementById('carbonSavingsChart'), {
+            type: 'bar',
+            data: {
+                labels: entries.map(e => e.bu.length > 30 ? e.bu.substring(0, 27) + '…' : e.bu),
+                datasets: [{
+                    label: 'CO₂e Saved (kg)',
+                    data: entries.map(e => parseFloat(e.savingKg.toFixed(1))),
+                    backgroundColor: barColors,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: ctx => {
+                                let e = entries[ctx.dataIndex];
+                                let lines = [
+                                    ` Saved: ${fmtNum(ctx.parsed.x, 1)} kg CO₂e`,
+                                    ` Actual: ${fmtNum(e.carbon / 1000, 2)} kg CO₂e (NZ grid)`,
+                                    ` Diesel equiv. would have been: ${fmtNum((e.energy * DIESEL_CO2_PER_KWH) / 1000, 1)} kg CO₂e`,
+                                    ` Energy used: ${fmtNum(e.energy, 1)} kWh`
+                                ];
+                                return lines;
+                            }
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'kg CO₂e saved vs diesel equivalent', font: { size: 11 } },
+                        ticks: { font: { size: 10 }, callback: v => fmtNum(v, 0) }
+                    },
+                    y: { ticks: { font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    function renderBUCharts() {
+        // One mini-chart per business unit present in filtered data
+        let buGroups = {};
+        filteredData.forEach(d => {
+            if (!buGroups[d.businessUnit]) buGroups[d.businessUnit] = [];
+            buGroups[d.businessUnit].push(d);
+        });
+
+        // Destroy old BU charts
+        Object.keys(charts).forEach(k => { if (k.startsWith('bu_')) { charts[k].destroy(); delete charts[k]; } });
+
+        let buNames = Object.keys(buGroups).filter(b => b !== "Unknown").sort();
+        let grid = document.getElementById("buChartsGrid");
+        grid.innerHTML = '';
+
+        buNames.forEach((bu, idx) => {
+            let data = buGroups[bu];
+
+            // Vehicle totals for this BU
+            let vehMap = new Map();
+            let hourMap = new Array(24).fill(0);
+            data.forEach(d => {
+                vehMap.set(d.vehicle, (vehMap.get(d.vehicle) || 0) + d.energy);
+                let h = d.date.getHours();
+                if (!isNaN(h)) hourMap[h] += d.energy;
+            });
+
+            let totalEnergy = data.reduce((s,d) => s + d.energy, 0);
+            let totalCarbon = data.reduce((s,d) => s + d.carbon, 0);
+            let totalCost = totalEnergy * KWH_RATE;
+            let carbonSavingKg = ((totalEnergy * DIESEL_CO2_PER_KWH) - totalCarbon) / 1000;
+            let sessions = data.length;
+            let vehEntries = Array.from(vehMap.entries()).sort((a,b) => b[1] - a[1]);
+            let color = BU_COLORS[idx % BU_COLORS.length];
+            let carbonDisplay = totalCarbon >= 1000 ? fmtNum(totalCarbon / 1000, 2) + ' kg' : fmtNum(totalCarbon, 0) + ' g';
+
+            // Card with two canvases: vehicle totals + hourly profile
+            let cardId = `bucard_${idx}`;
+            let vehCanvasId = `bu_veh_${idx}`;
+            let hourCanvasId = `bu_hour_${idx}`;
+
+            let card = document.createElement('div');
+            card.className = 'bu-chart-card';
+            card.innerHTML = `
+                <h3 style="border-left-color:${color}">${bu}</h3>
+                <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-bottom:12px;">
+                    <span style="color:#666;">${fmtNum(sessions)} sessions</span>
+                    <span style="color:#1F4E79;font-weight:700;">${fmtNum(totalEnergy, 1)} kWh</span>
+                    <span style="background:#d1fae5;color:#065f46;font-weight:700;padding:2px 8px;border-radius:10px;">${fmtCost(totalCost)} @ $0.30/kWh</span>
+                    <span style="background:#ecfdf5;color:#047857;font-weight:700;padding:2px 8px;border-radius:10px;">🌿 ${carbonDisplay} CO₂e used</span>
+                    <span style="background:#d1fae5;color:#065f46;font-weight:700;padding:2px 8px;border-radius:10px;">🚛 ${fmtNum(carbonSavingKg, 1)} kg saved vs diesel</span>
+                </div>
+                <div style="font-size:11px;font-weight:bold;color:#555;margin-bottom:4px;text-transform:uppercase;">Vehicle Totals (kWh)</div>
+                <canvas id="${vehCanvasId}" style="max-height:180px;margin-bottom:14px;"></canvas>
+                <div style="font-size:11px;font-weight:bold;color:#555;margin-bottom:4px;text-transform:uppercase;">Charging Profile by Hour</div>
+                <canvas id="${hourCanvasId}" style="max-height:120px;"></canvas>
+            `;
+            grid.appendChild(card);
+
+            // Vehicle chart
+            let chartKey1 = `bu_veh_${idx}`;
+            charts[chartKey1] = new Chart(document.getElementById(vehCanvasId), {
+                type: 'bar',
+                data: {
+                    labels: vehEntries.map(v => v[0].length > 22 ? v[0].substring(0,19)+'…' : v[0]),
+                    datasets: [{ label: 'kWh', data: vehEntries.map(v => parseFloat(v[1].toFixed(1))), backgroundColor: color }]
+                },
+                options: {
+                    indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed.x, 1) + ' kWh' } }
+                    },
+                    scales: {
+                        x: { ticks: { font: { size: 9 }, callback: v => typeof v === 'number' ? fmtNum(v, 0) : v } },
+                        y: { ticks: { font: { size: 9 } } }
+                    }
+                }
+            });
+
+            // Hour profile chart
+            let chartKey2 = `bu_hour_${idx}`;
+            charts[chartKey2] = new Chart(document.getElementById(hourCanvasId), {
+                type: 'bar',
+                data: {
+                    labels: [...Array(24).keys()].map(h => `${h}`),
+                    datasets: [{ label: 'kWh', data: hourMap.map(v => parseFloat(v.toFixed(1))), backgroundColor: color + 'aa' }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed.y, 1) + ' kWh' } }
+                    },
+                    scales: {
+                        x: { ticks: { font: { size: 8 } }, title: { display: true, text: 'Hour', font: { size: 9 } } },
+                        y: { ticks: { font: { size: 9 }, callback: v => typeof v === 'number' ? fmtNum(v, 0) : v } }
+                    }
+                }
+            });
+        });
+    }
+
+    document.getElementById("buFilter").onchange = applyFilters;
+    document.getElementById("vehicleFilter").onchange = applyFilters;
+    document.getElementById("locationFilter").onchange = applyFilters;
+    document.getElementById("dateFrom").onchange = () => { setActiveShortcut(null); applyFilters(); };
+    document.getElementById("dateTo").onchange = () => { setActiveShortcut(null); applyFilters(); };
+    document.getElementById("resetBtn").onclick = () => {
+        document.getElementById("buFilter").value = "all";
+        document.getElementById("vehicleFilter").value = "all";
+        document.getElementById("locationFilter").value = "all";
+        document.getElementById("dateFrom").value = "2026-01-01";
+        document.getElementById("dateTo").value = "2026-12-31";
+        setActiveShortcut(null);
+        applyFilters();
+    };
+</script>
+</body>
+</html>
